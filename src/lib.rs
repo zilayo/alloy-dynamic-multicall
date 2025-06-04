@@ -11,7 +11,7 @@ use alloy::providers::{
 };
 use alloy::rpc::types::{state::StateOverride, TransactionInputKind};
 use alloy::sol_types::SolCall;
-use tracing::{debug, trace};
+use tracing::trace;
 
 /// Basic version of [alloy::providers::MulticallBuilder] to allow using multicall within type constraints.
 #[derive(Debug)]
@@ -94,7 +94,13 @@ where
             Vec::with_capacity(calls.len());
 
         for (idx, result) in results.iter().enumerate() {
-            debug!(idx, ?result, "Attempting to decode result");
+            trace!(
+                idx,
+                ?result,
+                target = %calls[idx].target,
+                calldata = %calls[idx].callData,
+                "Attempting to decode result"
+            );
 
             let decoded_call_result = match result.success {
                 true => {
