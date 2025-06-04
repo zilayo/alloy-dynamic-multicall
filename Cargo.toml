@@ -1,0 +1,25 @@
+[package]
+name = "alloy-dynamic-multicall"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.82"
+
+[dependencies]
+alloy = { version = "1.0.9", default-features = false, features = [
+  "dyn-abi",
+  "eips",
+  "json-abi",
+  "network",
+  "providers",
+  "rpc",
+  "rpc-types",
+  "sol-types",
+] }
+
+
+[dev-dependencies]
+tokio = "1.45.1"
+tracing-subscriber = { version = "0.3.19", features = ["fmt"] }
+alloy-provider = { version = "1.0.9", features = ["anvil-node"] }
+alloy = { version = "1.0.9", default-features = false, features = ["contract"] }
