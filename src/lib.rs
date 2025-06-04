@@ -6,10 +6,10 @@ use alloy::json_abi::Function;
 use alloy::network::{Network, TransactionBuilder};
 use alloy::primitives::{Address, Bytes, U256};
 use alloy::providers::{
-    Failure, MULTICALL3_ADDRESS, MulticallError, Provider, Result,
-    bindings::IMulticall3::{Call3, aggregate3Call},
+    bindings::IMulticall3::{aggregate3Call, Call3},
+    Failure, MulticallError, Provider, Result, MULTICALL3_ADDRESS,
 };
-use alloy::rpc::types::{TransactionInputKind, state::StateOverride};
+use alloy::rpc::types::{state::StateOverride, TransactionInputKind};
 use alloy::sol_types::SolCall;
 
 /// Basic version of [alloy::providers::MulticallBuilder] to allow using multicall within type constraints.
@@ -203,11 +203,16 @@ impl Debug for DynCallItem {
 
 impl DynCallItem {
     /// Create a new [`DynCallItem`] instance.
-    pub const fn new(target: Address, params: Vec<DynSolValue>, function: Function) -> Self {
+    pub const fn new(
+        target: Address,
+        params: Vec<DynSolValue>,
+        function: Function,
+        allow_failure: bool,
+    ) -> Self {
         Self {
             target,
             params,
-            allow_failure: false,
+            allow_failure,
             value: U256::ZERO,
             decoder: function,
         }
@@ -274,9 +279,11 @@ mod tests {
                 "d8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
             ))],
             balance_of_function,
+            false,
         );
 
-        let total_supply_call_item = DynCallItem::new(weth, Vec::new(), total_supply_function);
+        let total_supply_call_item =
+            DynCallItem::new(weth, Vec::new(), total_supply_function, false);
 
         let dynamic_multicall = DynamicMulticallBuilder::new(provider.clone())
             .add_call(balance_of_call_item)

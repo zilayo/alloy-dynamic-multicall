@@ -34,9 +34,10 @@ let balance_of = DynCallItem::new(
     weth,
     vec![DynSolValue::Address("d8dA6BF26964aF9D7eEd9e03E53415D37aA96045".parse().unwrap())],
     balance_of_fn,
+    false
 );
 
-let total_supply = DynCallItem::new(weth, vec![], total_supply_fn);
+let total_supply = DynCallItem::new(weth, vec![], total_supply_fn, false);
 
 let multicall = DynamicMulticallBuilder::new(provider)
     .add_call(balance_of)
