@@ -147,6 +147,7 @@ dependencies = [
  "alloy",
  "alloy-provider",
  "tokio",
+ "tracing",
  "tracing-subscriber",
 ]
 

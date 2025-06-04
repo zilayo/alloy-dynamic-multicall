@@ -11,6 +11,7 @@ use alloy::providers::{
 };
 use alloy::rpc::types::{state::StateOverride, TransactionInputKind};
 use alloy::sol_types::SolCall;
+use tracing::{debug, trace};
 
 /// Basic version of [alloy::providers::MulticallBuilder] to allow using multicall within type constraints.
 #[derive(Debug)]
@@ -78,7 +79,12 @@ where
         let call = aggregate3Call {
             calls: calls.to_vec(),
         };
+
+        trace!("aggregate3Call: {call:?}",);
+
         let results = self.build_and_call(call, None).await?;
+
+        trace!("aggregate3Call results: {results:?}");
 
         if results.len() != calls.len() {
             return Err(MulticallError::NoReturnData);
@@ -88,17 +94,27 @@ where
             Vec::with_capacity(calls.len());
 
         for (idx, result) in results.iter().enumerate() {
+            debug!(idx, ?result, "Attempting to decode result");
+
             let decoded_call_result = match result.success {
                 true => {
-                    let decoded = self.calls[idx]
-                        .decoder
-                        .abi_decode_output(&result.returnData)
-                        .map_err(|err| {
-                            MulticallError::DecodeError(alloy::sol_types::Error::custom(
-                                err.to_string(),
-                            ))
-                        })?;
-                    Ok(decoded)
+                    // Calls to some contracts with a fallback will return success, but actually return no data.
+                    if result.returnData.is_empty() {
+                        Err(Failure {
+                            idx,
+                            return_data: result.returnData.clone(),
+                        })
+                    } else {
+                        let decoded = self.calls[idx]
+                            .decoder
+                            .abi_decode_output(&result.returnData)
+                            .map_err(|err| {
+                                MulticallError::DecodeError(alloy::sol_types::Error::custom(
+                                    err.to_string(),
+                                ))
+                            })?;
+                        Ok(decoded)
+                    }
                 }
                 false => Err(Failure {
                     idx,
@@ -196,6 +212,7 @@ impl Debug for DynCallItem {
             .field("target", &self.target)
             .field("allow_failure", &self.allow_failure)
             .field("value", &self.value)
+            .field("function", &self.decoder.name)
             .field("params", &self.params)
             .finish()
     }
@@ -298,6 +315,112 @@ mod tests {
         for result in res {
             let decoded = result.unwrap();
             assert_eq!(decoded.len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_multicaller_with_many() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let weth = address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
+        let provider = ProviderBuilder::new().connect_anvil_with_config(|a| a.fork(FORK_URL));
+
+        let total_supply_function = ERC20::abi::functions()
+            .get("totalSupply")
+            .cloned()
+            .unwrap()
+            .first()
+            .unwrap()
+            .clone();
+
+        let balance_of_function = ERC20::abi::functions()
+            .get("balanceOf")
+            .cloned()
+            .unwrap()
+            .first()
+            .unwrap()
+            .clone();
+
+        let balance_of_call_item = DynCallItem::new(
+            weth,
+            vec![DynSolValue::Address(address!(
+                "d8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+            ))],
+            balance_of_function,
+            false,
+        );
+
+        let total_supply_call_item =
+            DynCallItem::new(weth, Vec::new(), total_supply_function, false);
+
+        let mut dynamic_multicall = DynamicMulticallBuilder::new(provider.clone());
+
+        for _ in 0..20 {
+            dynamic_multicall = dynamic_multicall
+                .add_call(balance_of_call_item.clone())
+                .add_call(total_supply_call_item.clone());
+        }
+
+        assert_eq!(dynamic_multicall.len(), 40);
+
+        let res = dynamic_multicall.aggregate3().await.unwrap();
+
+        assert_eq!(res.len(), 40);
+
+        for result in res {
+            let decoded = result.unwrap();
+            assert_eq!(decoded.len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_contract_with_fallback() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let forwarder_contract = address!("0xd5fe1c1f216b775dfd30638fa7164d41321ef79b");
+        let provider = ProviderBuilder::new().connect_anvil_with_config(|a| a.fork(FORK_URL));
+
+        let total_supply_function = ERC20::abi::functions()
+            .get("totalSupply")
+            .cloned()
+            .unwrap()
+            .first()
+            .unwrap()
+            .clone();
+
+        let balance_of_function = ERC20::abi::functions()
+            .get("balanceOf")
+            .cloned()
+            .unwrap()
+            .first()
+            .unwrap()
+            .clone();
+
+        let balance_of_call_item = DynCallItem::new(
+            forwarder_contract,
+            vec![DynSolValue::Address(address!(
+                "d8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+            ))],
+            balance_of_function,
+            false,
+        );
+
+        let total_supply_call_item =
+            DynCallItem::new(forwarder_contract, Vec::new(), total_supply_function, false);
+
+        let dynamic_multicall = DynamicMulticallBuilder::new(provider.clone())
+            .add_call(balance_of_call_item)
+            .add_call(total_supply_call_item);
+
+        assert_eq!(dynamic_multicall.len(), 2);
+
+        let res = dynamic_multicall.aggregate3().await.unwrap();
+
+        assert_eq!(res.len(), 2);
+
+        for result in res {
+            let err = result.expect_err("should have errored");
+            assert!(err.return_data.is_empty())
         }
     }
 }
